@@ -144,7 +144,7 @@ class LearningAgent(Agent):
         self._saver.save(self._session, self._checkpoint_path + '/network', global_step=epoch_number)
 
 
-def nn_run(test_mode):
+def nn_run(test_mode, number_of_games):
     env = Environment(verbose=True)
     print('Creating NN agent')
     agent = env.create_agent(LearningAgent)
@@ -153,7 +153,6 @@ def nn_run(test_mode):
     if test_mode:
         agent.epsilon = 0
 
-    number_of_games = 20
     for i in range(number_of_games):
         print('Starting game {}'.format(i))
         game_over = False
@@ -198,6 +197,9 @@ if __name__ == '__main__':
     parser.add_option("-t", "--test", dest="test_mode",
                       action="store_true", help="Run the agent in test mode")
 
+    parser.add_option("-n", "--number-of-games", dest="number_of_games",
+                      help="Number of games to run")
+
     (options, args) = parser.parse_args()
 
-    nn_run(options.test_mode)
+    nn_run(options.test_mode, options.number_of_games)
