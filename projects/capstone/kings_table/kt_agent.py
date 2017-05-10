@@ -84,7 +84,7 @@ class LearningAgent(Agent):
         input_state = np.reshape(np.array(state), (self.env.grid_width, self.env.grid_height, 1))
         allQ = self._session.run([self.output_layer], feed_dict={self.input_layer: [input_state]})
         valid_q = allQ[0]
-        all_valid_moves = valid_q[0][:len(all_moves) + 1]
+        all_valid_moves = valid_q[0][:len(all_moves)]
         if self.epsilon > random.random():
             action_index = random.randrange(len(all_moves))
         else:
