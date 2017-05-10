@@ -29,7 +29,7 @@ class Agent(object):
 class LearningAgent(Agent):
     MEMORY_SIZE = 500000  # number of observations to remember
     MINI_BATCH_SIZE = 5  # size of mini batches
-    MAX_MOVES = 160
+    MAX_MOVES = 170
 
     def __init__(self, env):
         super(LearningAgent, self).__init__()     # Set the agent in the environment
