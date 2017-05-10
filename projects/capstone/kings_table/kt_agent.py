@@ -83,12 +83,12 @@ class LearningAgent(Agent):
         assert len(all_moves) <= self.MAX_MOVES, len(all_moves)
         input_state = np.reshape(np.array(state), (self.env.grid_width, self.env.grid_height, 1))
         allQ = self._session.run([self.output_layer], feed_dict={self.input_layer: [input_state]})
-        valid_q = allQ[0][:len(all_moves) + 1]
-
+        valid_q = allQ[0]
+        all_valid_moves = valid_q[0][:len(all_moves) + 1]
         if self.epsilon > random.random():
             action_index = random.randrange(len(all_moves))
         else:
-            action_index = np.argmax(valid_q)
+            action_index = np.argmax(all_valid_moves)
 
         try:
             chosen_action = all_moves[action_index]
