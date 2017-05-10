@@ -7,6 +7,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 import tensorflow as tf
 from collections import deque
 from optparse import OptionParser
+from argparse import ArgumentParser
 from kt_simulator import Simulator
 from kt_environment import Environment
 
@@ -192,14 +193,14 @@ def nn_run(test_mode, number_of_games):
 
 
 if __name__ == '__main__':
-    parser = OptionParser()
+    parser = ArgumentParser()
 
-    parser.add_option("-t", "--test", dest="test_mode",
-                      action="store_true", help="Run the agent in test mode")
+    parser.add_argument("-t", "--test", dest="test_mode",
+                        action="store_true", help="Run the agent in test mode")
 
-    parser.add_option("-n", "--number-of-games", dest="number_of_games",
-                      help="Number of games to run")
+    parser.add_argument("-n", "--number-of-games", dest="number_of_games",
+                        help="Number of games to run", type=int)
 
-    (options, args) = parser.parse_args()
+    args = parser.parse_args()
 
-    nn_run(options.test_mode, options.number_of_games)
+    nn_run(args.test_mode, args.number_of_games)
