@@ -6,34 +6,18 @@ import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 import tensorflow as tf
 from collections import deque
-from optparse import OptionParser
 from argparse import ArgumentParser
 from kt_simulator import Simulator
 from kt_environment import Environment
 
 
-class Agent(object):
-    """Base class for all agents."""
-
-    def __init__(self):
-        self.state = None
-        self.primary_agent = False
-
-    def reset(self, destination=None, testing=False):
-        pass
-
-    def get_state(self):
-        return self.state
-
-
-class LearningAgent(Agent):
+class LearningAgent():
     MEMORY_SIZE = 500000  # number of observations to remember
-    MINI_BATCH_SIZE = 5  # size of mini batches
+    OBSERVATIONS = 50000  # number of games to play before starting to train
+    MINI_BATCH_SIZE = 100  # size of mini batches
     MAX_MOVES = 180
 
     def __init__(self, env):
-        super(LearningAgent, self).__init__()     # Set the agent in the environment
-
         self.epsilon = 0.9
         self.env = env
         self._checkpoint_path = 'kings_table_networks'
@@ -144,6 +128,34 @@ class LearningAgent(Agent):
 
         self._saver.save(self._session, self._checkpoint_path + '/network', global_step=epoch_number)
 
+    def play_game(self, env, training_mode):
+        game_over = False
+        sim = Simulator()
+        state = sim.get_state()
+
+        while not game_over:
+            chosen_action, all_actions = self.choose_next_action(state, sim)
+
+            move, new_state, reward = sim.step(chosen_action)
+            input_state = np.reshape(np.array(state), (env.grid_width, env.grid_height, 1))
+            input_new_state = np.reshape(np.array(new_state), (env.grid_width, env.grid_height, 1))
+            if move.game_over:
+                print('Game over in {} turns'.format(sim.round_number))
+                game_over = True
+                sim.game_over()
+
+            experience = (input_state, all_actions, reward, input_new_state, game_over)
+            self._observations.append(experience)
+
+            if len(self._observations) > self.MEMORY_SIZE:
+                self._observations.popleft()
+
+            # only train if done observing
+            if training_mode:
+                self.train()
+
+        return sim.round_number
+
 
 def nn_run(test_mode, number_of_games):
     env = Environment(verbose=True)
@@ -153,43 +165,30 @@ def nn_run(test_mode, number_of_games):
     average_durations = []
     if test_mode:
         agent.epsilon = 0
+    else:
+        # observe for a number of games, using only random actions
+        agent.epsilon = 1
+        for i in range(agent.OBSERVATIONS):
+            print('Starting observation game {}'.format(i))
+            agent.play_game(env, False)
 
-    for i in range(number_of_games):
-        print('Starting game {}'.format(i))
-        game_over = False
-        sim = Simulator()
-        state = sim.get_state()
+        for epoch in range(number_of_games + 1):
+            print('Starting training game {} using epsilon: {}'.format(epoch, agent.epsilon))
+            game_length = agent.play_game(env, True)
+            durations.append(game_length)
+            if len(durations) > 10:
+                durations.popleft()
 
-        while not game_over:
-            chosen_action, all_actions = agent.choose_next_action(state, sim)
+            agent.epsilon -= (1 - 0.05) / number_of_games
 
-            move, new_state, reward = sim.step(chosen_action)
-            input_state = np.reshape(np.array(state), (env.grid_width, env.grid_height, 1))
-            input_new_state = np.reshape(np.array(new_state), (env.grid_width, env.grid_height, 1))
-            if move.game_over:
-                print('Game over in {} turns'.format(sim.round_number))
-                game_over = True
-                sim.game_over()
-                durations.append(sim.round_number)
-                if len(durations) > 10:
-                    durations.popleft()
+            # every 5 games print the average duration and save the model
+            if epoch % 5 == 0 and epoch != 0:
+                agent.end_epoch(durations, average_durations, epoch)
 
-            experience = (input_state, all_actions, reward, input_new_state, game_over)
-            agent._observations.append(experience)
+        # save the model again after finishing the last epoch
+        agent.end_epoch(durations, average_durations, epoch)
 
-            if len(agent._observations) > agent.MEMORY_SIZE:
-                agent._observations.popleft()
-
-            # only train if done observing
-            if len(agent._observations) > 5:
-                agent.train()
-
-        # every 5 games print the average duration and save the model
-        if i % 5 == 0 and i != 0:
-            agent.end_epoch(durations, average_durations, i)
-
-    # save the model again after finishing the last epoch
-    agent.end_epoch(durations, average_durations, i)
+        # run some test games after training, and record stats
 
 
 if __name__ == '__main__':
