@@ -1,5 +1,6 @@
 import os
 import csv
+import time
 import random
 import datetime
 import numpy as np
@@ -128,9 +129,9 @@ class LearningAgent():
 
         self._saver.save(self._session, self._checkpoint_path + '/network', global_step=epoch_number)
 
-    def play_game(self, env, training_mode):
+    def play_game(self, env, training_mode, visualise_screen=False):
         game_over = False
-        sim = Simulator()
+        sim = Simulator(visualise=visualise_screen)
         state = sim.get_state()
 
         while not game_over:
@@ -157,7 +158,7 @@ class LearningAgent():
         return sim.round_number
 
 
-def nn_run(test_mode, number_of_games):
+def nn_run(test_mode, number_of_games, visualise_screen):
     env = Environment(verbose=True)
     print('Creating NN agent')
     agent = env.create_agent(LearningAgent)
@@ -165,6 +166,9 @@ def nn_run(test_mode, number_of_games):
     average_durations = []
     if test_mode:
         agent.epsilon = 0
+        for i in range(number_of_games):
+            print('Starting test game {}'.format(i))
+            agent.play_game(env, False, visualise_screen)
     else:
         # observe for a number of games, using only random actions
         agent.epsilon = 1
@@ -200,6 +204,11 @@ if __name__ == '__main__':
     parser.add_argument("-n", "--number-of-games", dest="number_of_games",
                         help="Number of games to run", type=int)
 
-    args = parser.parse_args()
+    parser.add_argument("-v", "--visualise_screen", dest="visualise",
+                        action="store_true", help="Number of games to run")
 
-    nn_run(args.test_mode, args.number_of_games)
+    args = parser.parse_args()
+    start_time = time.time()
+    nn_run(args.test_mode, args.number_of_games, args.visualise)
+    end_time = time.time()
+    print(end_time - start_time)
