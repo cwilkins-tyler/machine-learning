@@ -937,11 +937,14 @@ class Cell():
 
 
 class Simulator():
-    def __init__(self, sim_mode=True):
+    def __init__(self, sim_mode=True, visualise=False):
         self.sim_mode = sim_mode
+        self.visualise = visualise
         pygame.init()
         pygame.display.set_caption("King's Table")
-        self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        if visualise:
+            self.screen = pygame.display.set_mode(WINDOW_SIZE)
+
         initialize_groups()
         self.board = Board(INITIAL_STATE)
         self.move = Move()
@@ -997,7 +1000,10 @@ class Simulator():
     def step(self, action):
         self.round_number += 1
         self.move.agent_move(self.board, action)
-        self.update_image(self.screen, self.board, self.move, '', '', self.sim_mode)
+
+        if self.visualise:
+            self.update_image(self.screen, self.board, self.move, '', '', self.sim_mode)
+
         self.move.computer_move(self.board)
 
         current_state = self.board.get_current_state()
