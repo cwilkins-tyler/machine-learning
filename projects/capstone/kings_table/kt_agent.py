@@ -189,9 +189,6 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             if epoch % 5 == 0 and epoch != 0:
                 agent.end_epoch(durations, average_durations, epoch)
 
-        # save the model again after finishing the last epoch
-        agent.end_epoch(durations, average_durations, epoch)
-
         # run some test games after training, and record stats
 
 
