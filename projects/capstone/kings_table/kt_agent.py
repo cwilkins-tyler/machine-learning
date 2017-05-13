@@ -33,6 +33,7 @@ class LearningAgent():
         cost = tf.reduce_mean(tf.square(self.target - readout_action))
         self.train_operation = tf.train.AdamOptimizer(0.1).minimize(cost)
         self._observations = deque()
+        self.action_history = []  # The list of historical actions taken
 
         self._session.run(tf.global_variables_initializer())
 
@@ -129,6 +130,30 @@ class LearningAgent():
 
         self._saver.save(self._session, self._checkpoint_path + '/network', global_step=epoch_number)
 
+    def calculate_rewards(self, attacker_win):
+        game_observations = []
+        history_iterator = 0
+        for history_item in self.action_history:
+            history_iterator += 1
+            history_state, history_actions, history_new_state = history_item
+            reward_multiplier = history_iterator / len(self.action_history)
+            if attacker_win:
+                reward = 1
+            else:
+                reward = -1
+
+            step_reward = reward * reward_multiplier
+
+            if history_iterator == len(self.action_history):
+                game_over = True
+            else:
+                game_over = False
+
+            experience = (history_state, history_actions, step_reward, history_new_state, game_over)
+            game_observations.append(experience)
+
+        return game_observations
+
     def play_game(self, env, training_mode, visualise_screen=False):
         game_over = False
         sim = Simulator(visualise=visualise_screen)
@@ -140,13 +165,18 @@ class LearningAgent():
             move, new_state, reward = sim.step(chosen_action)
             input_state = np.reshape(np.array(state), (env.grid_width, env.grid_height, 1))
             input_new_state = np.reshape(np.array(new_state), (env.grid_width, env.grid_height, 1))
+            self.action_history.append((input_state, all_actions, input_new_state))
+
             if move.game_over:
                 print('Game over in {} turns'.format(sim.round_number))
+                game_observations = self.calculate_rewards(move.king_killed)
                 game_over = True
                 sim.game_over()
 
-            experience = (input_state, all_actions, reward, input_new_state, game_over)
-            self._observations.append(experience)
+                for experience in game_observations:
+                    self._observations.append(experience)
+
+                self.action_history = []
 
             if len(self._observations) > self.MEMORY_SIZE:
                 self._observations.popleft()
