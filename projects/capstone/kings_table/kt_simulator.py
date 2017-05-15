@@ -1,3 +1,4 @@
+import time
 import pygame
 import random
 
@@ -1003,6 +1004,8 @@ class Simulator():
 
         if self.visualise:
             self.update_image(self.screen, self.board, self.move, '', '', self.sim_mode)
+            # slow down the updates if the screen is being shown
+            time.sleep(1)
 
         self.move.computer_move(self.board)
 
