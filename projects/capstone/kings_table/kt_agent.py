@@ -2,6 +2,7 @@ import os
 import csv
 import time
 import random
+import pickle
 import datetime
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
@@ -200,14 +201,26 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             print('Starting test game {}'.format(i))
             agent.play_game(env, False, visualise_screen)
     else:
-        # observe for a number of games, using only random actions
-        agent.epsilon = 1
-        for i in range(agent.OBSERVATIONS):
-            print('Starting observation game {}'.format(i))
-            agent.play_game(env, False)
+        observations_file = 'observations.pkl'
+
+        # if we have existing observations, use them
+        if os.path.isfile(observations_file):
+            print('Using stored observations')
+            observations = open(observations_file, 'rb')
+            agent._observations = pickle.load(observations)
+        else:
+            # observe for a number of games, using only random actions
+            agent.epsilon = 1
+            for i in range(agent.OBSERVATIONS):
+                print('Starting observation game {}'.format(i))
+                agent.play_game(env, False)
+
+            # save the observations
+            with open(observations_file, 'wb') as f:
+                pickle.dump(agent._observations, f)
 
         for epoch in range(number_of_games + 1):
-            print('Starting training game {} using epsilon: {}'.format(epoch, agent.epsilon))
+            print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
             game_length = agent.play_game(env, True)
             durations.append(game_length)
             if len(durations) > 10:
