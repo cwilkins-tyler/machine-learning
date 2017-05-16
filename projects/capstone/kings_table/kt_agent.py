@@ -2,7 +2,7 @@ import os
 import csv
 import time
 import random
-import pickle
+import klepto
 import datetime
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
@@ -15,8 +15,8 @@ from kt_environment import Environment
 
 class LearningAgent():
     MEMORY_SIZE = 500000  # number of observations to remember
-    OBSERVATIONS = 50000  # number of games to play before starting to train
-    MINI_BATCH_SIZE = 100  # size of mini batches
+    OBSERVATIONS = 5  # number of games to play before starting to train
+    MINI_BATCH_SIZE = 1  # size of mini batches
     MAX_MOVES = 200
 
     def __init__(self, env):
@@ -201,13 +201,13 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             print('Starting test game {}'.format(i))
             agent.play_game(env, False, visualise_screen)
     else:
-        observations_file = 'observations.pkl'
+        observations_dir = 'observations'
 
         # if we have existing observations, use them
-        if os.path.isfile(observations_file):
+        if os.path.isdir(observations_dir):
             print('Using stored observations')
-            observations = open(observations_file, 'rb')
-            agent._observations = pickle.load(observations)
+            ob_dir = klepto.archives.dir_archive(observations_dir, cached=True, serialized=True)
+            agent._observations = ob_dir.load('results')
         else:
             # observe for a number of games, using only random actions
             agent.epsilon = 1
@@ -216,8 +216,9 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 agent.play_game(env, False)
 
             # save the observations
-            with open(observations_file, 'wb') as f:
-                pickle.dump(agent._observations, f)
+            ob_dir = klepto.archives.dir_archive(observations_dir, cached=True, serialized=True)
+            ob_dir['results'] = agent._observations
+            ob_dir.dump()
 
         for epoch in range(number_of_games + 1):
             print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
@@ -231,6 +232,17 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             # every 5 games print the average duration and save the model
             if epoch % 5 == 0 and epoch != 0:
                 agent.end_epoch(durations, average_durations, epoch)
+
+            # every 1000 games run some test games with epsilon of zero
+            if epoch % 1000 == 0 and epoch != 0:
+                old_epsilon = agent.epsilon
+                agent.epsilon = 0
+                for i in range(10):
+                    print('Starting test game {}'.format(i))
+                    agent.play_game(env, False, visualise_screen)
+
+                # reset epsilon back to the old value
+                agent.epsilon = old_epsilon
 
         # run some test games after training, and record stats
 
