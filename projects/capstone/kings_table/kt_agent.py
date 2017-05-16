@@ -15,8 +15,8 @@ from kt_environment import Environment
 
 class LearningAgent():
     MEMORY_SIZE = 500000  # number of observations to remember
-    OBSERVATIONS = 5  # number of games to play before starting to train
-    MINI_BATCH_SIZE = 1  # size of mini batches
+    OBSERVATIONS = 50000  # number of games to play before starting to train
+    MINI_BATCH_SIZE = 100  # size of mini batches
     MAX_MOVES = 200
 
     def __init__(self, env):
