@@ -32,10 +32,15 @@ class LearningAgent():
 
         readout_action = tf.reduce_sum(tf.multiply(self.output_layer, self.action), reduction_indices=1)
 
-        cost = tf.reduce_mean(tf.square(self.target - readout_action))
-        self.train_operation = tf.train.AdamOptimizer(0.1).minimize(cost)
+        self.cost = tf.reduce_mean(tf.square(self.target - readout_action))
+        tf.summary.scalar('cost', self.cost)
+        self.train_operation = tf.train.AdamOptimizer(0.1).minimize(self.cost)
         self._observations = deque()
         self.action_history = []  # The list of historical actions taken
+
+        self.merged = tf.summary.merge_all()
+        self.train_writer = tf.summary.FileWriter('board/train', self._session.graph)
+        self.test_writer = tf.summary.FileWriter('board/test')
 
         self._session.run(tf.global_variables_initializer())
 
@@ -51,6 +56,13 @@ class LearningAgent():
         # network weights
         convolution_weights_1 = tf.Variable(tf.truncated_normal([self.env.grid_width, self.env.grid_height, 1, 32],
                                                                 stddev=0.01))
+        mean = tf.reduce_mean(convolution_weights_1)
+        tf.summary.scalar('mean', mean)
+        stddev = tf.sqrt(tf.reduce_mean(tf.square(convolution_weights_1 - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(convolution_weights_1))
+        tf.summary.scalar('min', tf.reduce_min(convolution_weights_1))
+        tf.summary.histogram('histogram', convolution_weights_1)
 
         feed_forward_weights_1 = tf.Variable(tf.truncated_normal([288, self.MAX_MOVES], stddev=0.01))
 
@@ -87,7 +99,7 @@ class LearningAgent():
         new_action[action_index] = 1
         return chosen_action, new_action
 
-    def train(self):
+    def train(self, game_number):
         # sample a mini_batch to train on
         mini_batch = random.sample(self._observations, self.MINI_BATCH_SIZE)
 
@@ -107,9 +119,15 @@ class LearningAgent():
                 agents_expected_reward.append(rewards[i] + 0.99 * np.max(agents_reward_per_action[i]))
 
         # learn that these actions in these states lead to this reward
-        self._session.run(self.train_operation, feed_dict={self.input_layer: states,
-                                                           self.target: agents_expected_reward,
-                                                           self.action: actions})
+        run_metadata = tf.RunMetadata()
+        _, summary = self._session.run([self.train_operation, self.merged], feed_dict={self.input_layer: states,
+                                                                                       self.target: agents_expected_reward,
+                                                                                       self.action: actions},
+                                       run_metadata=run_metadata)
+        self.train_writer.add_run_metadata(run_metadata, 'step{:02d}'.format(game_number))
+        self.train_writer.add_summary(summary, '{:02d}'.format(game_number))
+        game_number += 1
+        return game_number
 
     def end_epoch(self, durations, average_durations, epoch_number):
         progress_csv = os.path.join(os.path.abspath(os.path.dirname(__file__)), self._checkpoint_path,
@@ -156,7 +174,7 @@ class LearningAgent():
 
         return game_observations
 
-    def play_game(self, env, training_mode, visualise_screen=False):
+    def play_game(self, env, training_mode, game_number, visualise_screen=False):
         game_over = False
         sim = Simulator(visualise=visualise_screen)
         state = sim.get_state()
@@ -168,7 +186,7 @@ class LearningAgent():
             input_state = np.reshape(np.array(state), (env.grid_width, env.grid_height, 1))
             input_new_state = np.reshape(np.array(new_state), (env.grid_width, env.grid_height, 1))
             self.action_history.append((input_state, all_actions, input_new_state))
-
+            tf.summary.image('game_state', input_new_state)
             if move.game_over:
                 print('Game over in {} turns'.format(sim.round_number))
                 game_observations = self.calculate_rewards(move.king_killed)
@@ -185,9 +203,9 @@ class LearningAgent():
 
             # only train if done observing
             if training_mode:
-                self.train()
+                game_number = self.train(game_number)
 
-        return sim.round_number
+        return sim.round_number, game_number
 
 
 def nn_run(test_mode, number_of_games, visualise_screen):
@@ -216,16 +234,17 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             agent.epsilon = 1
             for i in range(agent.OBSERVATIONS):
                 print('Starting observation game {}'.format(i))
-                agent.play_game(env, False)
+                agent.play_game(env, False, i)
 
             # save the observations
             ob_dir = klepto.archives.file_archive(observations_file, cached=True, serialized=True)
             ob_dir['results'] = agent._observations
             ob_dir.dump()
 
+        global_step = 1
         for epoch in range(number_of_games + 1):
             print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
-            game_length = agent.play_game(env, True)
+            game_length, global_step = agent.play_game(env, True, global_step)
             durations.append(game_length)
             if len(durations) > 10:
                 durations.popleft()
@@ -242,7 +261,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 agent.epsilon = 0
                 for i in range(10):
                     print('Starting test game {}'.format(i))
-                    agent.play_game(env, False, visualise_screen)
+                    agent.play_game(env, False, global_step, visualise_screen=visualise_screen)
 
                 # reset epsilon back to the old value
                 agent.epsilon = old_epsilon
