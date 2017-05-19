@@ -3,6 +3,7 @@ import csv
 import time
 import random
 import klepto
+import pickle
 import datetime
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
@@ -201,13 +202,15 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             print('Starting test game {}'.format(i))
             agent.play_game(env, False, visualise_screen)
     else:
-        observations_dir = 'observations'
+        observations_file = 'observations.pkl'
 
         # if we have existing observations, use them
-        if os.path.isdir(observations_dir):
+        if os.path.isfile(observations_file):
             print('Using stored observations')
-            ob_dir = klepto.archives.dir_archive(observations_dir, cached=True, serialized=True)
-            agent._observations = ob_dir.load('results')
+            ob_file = open(observations_file, 'rb')
+            ob_contents = ob_file.read()
+            observations = pickle.loads(ob_contents)
+            agent._observations = observations['results']
         else:
             # observe for a number of games, using only random actions
             agent.epsilon = 1
@@ -216,7 +219,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 agent.play_game(env, False)
 
             # save the observations
-            ob_dir = klepto.archives.dir_archive(observations_dir, cached=True, serialized=True)
+            ob_dir = klepto.archives.file_archive(observations_file, cached=True, serialized=True)
             ob_dir['results'] = agent._observations
             ob_dir.dump()
 
