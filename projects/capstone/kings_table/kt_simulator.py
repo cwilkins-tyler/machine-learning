@@ -997,6 +997,7 @@ class Simulator():
                 screen.blit(msg, msgpos)
 
         pygame.display.flip()
+        pygame.event.pump()
 
     def step(self, action):
         self.round_number += 1
