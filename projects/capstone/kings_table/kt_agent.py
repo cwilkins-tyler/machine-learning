@@ -4,6 +4,7 @@ import time
 import random
 import klepto
 import pickle
+import logging
 import datetime
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
@@ -12,6 +13,11 @@ from collections import deque
 from argparse import ArgumentParser
 from kt_simulator import Simulator
 from kt_environment import Environment
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+start_time = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')
+logging.basicConfig(format='%(asctime)s %(message)s', filename='kt_{}.log'.format(start_time))
 
 
 class LearningAgent():
@@ -24,7 +30,7 @@ class LearningAgent():
         self.epsilon = 0.9
         self.env = env
         self._checkpoint_path = 'kings_table_networks'
-        self._start_time = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        self._start_time = start_time
         self.input_layer, self.output_layer = self._create_network()
         self._session = tf.Session()
         self.action = tf.placeholder("float", [None, self.MAX_MOVES])
@@ -180,15 +186,19 @@ class LearningAgent():
         state = sim.get_state()
 
         while not game_over:
+            logger.debug('Choosing action')
             chosen_action, all_actions = self.choose_next_action(state, sim)
 
+            logger.debug('Action chosen, starting step')
             move, new_state, reward = sim.step(chosen_action)
+            logger.debug('Step taken')
             input_state = np.reshape(np.array(state), (env.grid_width, env.grid_height, 1))
             input_new_state = np.reshape(np.array(new_state), (env.grid_width, env.grid_height, 1))
             self.action_history.append((input_state, all_actions, input_new_state))
             tf.summary.image('game_state', input_new_state)
             if move.game_over:
                 print('Game over in {} turns'.format(sim.round_number))
+                logger.debug('Game over in {} turns'.format(sim.round_number))
                 game_observations = self.calculate_rewards(move.king_killed)
                 game_over = True
                 sim.game_over()
@@ -196,6 +206,7 @@ class LearningAgent():
                 for experience in game_observations:
                     self._observations.append(experience)
 
+                logger.debug('Observations stored')
                 self.action_history = []
 
             if len(self._observations) > self.MEMORY_SIZE:
@@ -203,7 +214,9 @@ class LearningAgent():
 
             # only train if done observing
             if training_mode:
+                logger.debug('Starting train')
                 game_number = self.train(game_number)
+                logger.debug('Training complete')
 
         return sim.round_number, game_number
 
@@ -211,6 +224,7 @@ class LearningAgent():
 def nn_run(test_mode, number_of_games, visualise_screen):
     env = Environment(verbose=True)
     print('Creating NN agent')
+    logger.debug("Creating agent")
     agent = env.create_agent(LearningAgent)
     durations = deque()
     average_durations = []
@@ -218,6 +232,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
         agent.epsilon = 0
         for i in range(number_of_games):
             print('Starting test game {}'.format(i))
+            logger.debug('Starting test game {}'.format(i))
             agent.play_game(env, False, visualise_screen)
     else:
         observations_file = 'observations.pkl'
@@ -225,6 +240,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
         # if we have existing observations, use them
         if os.path.isfile(observations_file):
             print('Using stored observations')
+            logger.debug('Using stored observations')
             ob_file = open(observations_file, 'rb')
             ob_contents = ob_file.read()
             observations = pickle.loads(ob_contents)
@@ -234,6 +250,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             agent.epsilon = 1
             for i in range(agent.OBSERVATIONS):
                 print('Starting observation game {}'.format(i))
+                logger.debug('Starting observation game {}'.format(i))
                 agent.play_game(env, False, i)
 
             # save the observations
@@ -244,6 +261,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
         global_step = 1
         for epoch in range(number_of_games + 1):
             print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
+            logger.debug('Starting training game {}'.format(epoch))
             game_length, global_step = agent.play_game(env, True, global_step)
             durations.append(game_length)
             if len(durations) > 10:
@@ -261,6 +279,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 agent.epsilon = 0
                 for i in range(10):
                     print('Starting test game {}'.format(i))
+                    logger.debug('Starting test game {}'.format(i))
                     agent.play_game(env, False, global_step, visualise_screen=visualise_screen)
 
                 # reset epsilon back to the old value
