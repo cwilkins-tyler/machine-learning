@@ -233,7 +233,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
         for i in range(number_of_games):
             print('Starting test game {}'.format(i))
             logger.debug('Starting test game {}'.format(i))
-            agent.play_game(env, False, visualise_screen)
+            agent.play_game(env, False, i, visualise_screen=visualise_screen)
     else:
         observations_file = 'observations.pkl'
 
