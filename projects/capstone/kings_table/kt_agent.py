@@ -252,6 +252,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 print('Starting observation game {}'.format(i))
                 logger.debug('Starting observation game {}'.format(i))
                 agent.play_game(env, False, i)
+                tf.reset_default_graph()
 
             # save the observations
             ob_dir = klepto.archives.file_archive(observations_file, cached=True, serialized=True)
@@ -263,6 +264,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
             logger.debug('Starting training game {}'.format(epoch))
             game_length, global_step = agent.play_game(env, True, global_step)
+            tf.reset_default_graph()
             durations.append(game_length)
             if len(durations) > 10:
                 durations.popleft()
