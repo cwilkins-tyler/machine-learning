@@ -15,7 +15,7 @@ from kt_simulator import Simulator
 from kt_environment import Environment
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 start_time = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')
 logging.basicConfig(format='%(asctime)s %(message)s', filename='kt_{}.log'.format(start_time))
 
@@ -250,8 +250,9 @@ def nn_run(test_mode, number_of_games, visualise_screen):
             agent.epsilon = 1
             for i in range(agent.OBSERVATIONS):
                 print('Starting observation game {}'.format(i))
-                logger.debug('Starting observation game {}'.format(i))
+                logger.info('Starting observation game {}'.format(i))
                 agent.play_game(env, False, i)
+                logger.info('Observation game {} complete'.format(i))
                 tf.reset_default_graph()
 
             # save the observations
@@ -262,8 +263,9 @@ def nn_run(test_mode, number_of_games, visualise_screen):
         global_step = 1
         for epoch in range(number_of_games + 1):
             print('Starting training game {} of {} using epsilon: {}'.format(epoch, number_of_games, agent.epsilon))
-            logger.debug('Starting training game {}'.format(epoch))
+            logger.info('Starting training game {}'.format(epoch))
             game_length, global_step = agent.play_game(env, True, global_step)
+            logger.info('Training game {} complete'.format(epoch))
             tf.reset_default_graph()
             durations.append(game_length)
             if len(durations) > 10:
@@ -281,8 +283,9 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 agent.epsilon = 0
                 for i in range(10):
                     print('Starting test game {}'.format(i))
-                    logger.debug('Starting test game {}'.format(i))
+                    logger.info('Starting test game {}'.format(i))
                     agent.play_game(env, False, global_step, visualise_screen=visualise_screen)
+                    logger.info('Test game {} complete'.format(i))
 
                 # reset epsilon back to the old value
                 agent.epsilon = old_epsilon
