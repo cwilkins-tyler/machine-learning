@@ -7,7 +7,7 @@ import pickle
 import logging
 import datetime
 import numpy as np
-os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
 from collections import deque
 from argparse import ArgumentParser
@@ -60,8 +60,11 @@ class LearningAgent():
 
     def _create_network(self):
         # network weights
+        final_layer_size = 256
         convolution_weights_1 = tf.Variable(tf.truncated_normal([self.env.grid_width, self.env.grid_height, 1, 32],
                                                                 stddev=0.01))
+        convolution_weights_2 = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
+
         mean = tf.reduce_mean(convolution_weights_1)
         tf.summary.scalar('mean', mean)
         stddev = tf.sqrt(tf.reduce_mean(tf.square(convolution_weights_1 - mean)))
@@ -70,16 +73,20 @@ class LearningAgent():
         tf.summary.scalar('min', tf.reduce_min(convolution_weights_1))
         tf.summary.histogram('histogram', convolution_weights_1)
 
-        feed_forward_weights_1 = tf.Variable(tf.truncated_normal([288, self.MAX_MOVES], stddev=0.01))
+        feed_forward_weights_1 = tf.Variable(tf.truncated_normal([final_layer_size, self.MAX_MOVES], stddev=0.01))
 
         input_layer = tf.placeholder("float", [None, self.env.grid_width, self.env.grid_height, 1])
 
         hidden_convolutional_layer_1 = tf.nn.relu(tf.nn.conv2d(input_layer, convolution_weights_1,
                                                                strides=[1, 4, 4, 1], padding="SAME"))
 
-        hidden_convolutional_layer_1_flat = tf.reshape(hidden_convolutional_layer_1, [-1, 288])
+        hidden_convolutional_layer_2 = tf.nn.relu(tf.nn.conv2d(hidden_convolutional_layer_1,
+                                                               convolution_weights_2, strides=[1, 2, 2, 1],
+                                                               padding="SAME"))
 
-        output_layer = tf.matmul(hidden_convolutional_layer_1_flat, feed_forward_weights_1)
+        hidden_convolutional_layer_2_flat = tf.reshape(hidden_convolutional_layer_2, [-1, final_layer_size])
+
+        output_layer = tf.matmul(hidden_convolutional_layer_2_flat, feed_forward_weights_1)
 
         return input_layer, output_layer
 
