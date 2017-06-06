@@ -26,10 +26,11 @@ class LearningAgent():
     MINI_BATCH_SIZE = 100  # size of mini batches
     MAX_MOVES = 200
 
-    def __init__(self, env):
+    def __init__(self, env, results_dir):
         self.epsilon = 0.9
         self.env = env
         self._checkpoint_path = 'kings_table_networks'
+        self.observations_file = 'observations.pkl'
         self._start_time = start_time
         self.input_layer, self.output_layer = self._create_network()
         self._session = tf.Session()
@@ -45,8 +46,8 @@ class LearningAgent():
         self.action_history = []  # The list of historical actions taken
 
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('board/train', self._session.graph)
-        self.test_writer = tf.summary.FileWriter('board/test')
+        self.train_writer = tf.summary.FileWriter(os.path.join(results_dir, 'train'), self._session.graph)
+        self.test_writer = tf.summary.FileWriter(os.path.join(results_dir, 'test'))
 
         self._session.run(tf.global_variables_initializer())
 
@@ -57,6 +58,11 @@ class LearningAgent():
         if checkpoint and checkpoint.model_checkpoint_path:
             self._saver.restore(self._session, checkpoint.model_checkpoint_path)
             print("Loaded checkpoints %s" % checkpoint.model_checkpoint_path)
+
+    def save_observations(self):
+        ob_dir = klepto.archives.file_archive(self.observations_file, cached=True, serialized=True)
+        ob_dir['results'] = self._observations
+        ob_dir.dump()
 
     def _create_network(self):
         # network weights
@@ -228,11 +234,11 @@ class LearningAgent():
         return sim.round_number, game_number
 
 
-def nn_run(test_mode, number_of_games, visualise_screen):
+def nn_run(test_mode, number_of_games, visualise_screen, results_dir):
     env = Environment(verbose=True)
     print('Creating NN agent')
     logger.debug("Creating agent")
-    agent = env.create_agent(LearningAgent)
+    agent = LearningAgent(env, results_dir)
     durations = deque()
     average_durations = []
     if test_mode:
@@ -263,9 +269,7 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 tf.reset_default_graph()
 
             # save the observations
-            ob_dir = klepto.archives.file_archive(observations_file, cached=True, serialized=True)
-            ob_dir['results'] = agent._observations
-            ob_dir.dump()
+            agent.save_observations()
 
         global_step = 1
         for epoch in range(number_of_games + 1):
@@ -297,7 +301,8 @@ def nn_run(test_mode, number_of_games, visualise_screen):
                 # reset epsilon back to the old value
                 agent.epsilon = old_epsilon
 
-        # run some test games after training, and record stats
+        # save the observations after the training games
+        agent.save_observations()
 
 
 if __name__ == '__main__':
@@ -312,8 +317,17 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--visualise_screen", dest="visualise",
                         action="store_true", help="Number of games to run")
 
+    parser.add_argument("-r", "--tensorflow_results", dest="results",
+                        help="Directory to store tensorflow results")
+
     args = parser.parse_args()
     start_time = time.time()
-    nn_run(args.test_mode, args.number_of_games, args.visualise)
+
+    if not args.results:
+        results_dir = 'board'
+    else:
+        results_dir = args.results
+
+    nn_run(args.test_mode, args.number_of_games, args.visualise, results_dir)
     end_time = time.time()
     print(end_time - start_time)
