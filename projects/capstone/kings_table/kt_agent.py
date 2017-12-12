@@ -22,8 +22,8 @@ logging.basicConfig(format='%(asctime)s %(message)s', filename='kt_{}.log'.forma
 
 class LearningAgent():
     MEMORY_SIZE = 500000  # number of observations to remember
-    OBSERVATIONS = 50000  # number of games to play before starting to train
-    MINI_BATCH_SIZE = 100  # size of mini batches
+    OBSERVATIONS = 10  # number of games to play before starting to train
+    MINI_BATCH_SIZE = 5  # size of mini batches
     MAX_MOVES = 200
 
     def __init__(self, env, results_dir):
@@ -134,8 +134,11 @@ class LearningAgent():
             if mini_batch[i][4]:
                 # this was a terminal frame so there is no future reward...
                 agents_expected_reward.append(rewards[i])
+                print('Terminal reward: {}'.format(rewards[i]))
             else:
-                agents_expected_reward.append(rewards[i] + 0.99 * np.max(agents_reward_per_action[i]))
+                reward = rewards[i] + 0.1 * np.max(agents_reward_per_action[i])
+                print('Non-terminal reward: {:.2f}, composed of {} and {}'.format(reward, rewards[i], np.max(agents_reward_per_action[i])))
+                agents_expected_reward.append(reward)
 
         # learn that these actions in these states lead to this reward
         run_metadata = tf.RunMetadata()
