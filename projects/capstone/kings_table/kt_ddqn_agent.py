@@ -65,7 +65,7 @@ class DoubleDQNAgent:
     # get action from model using epsilon-greedy policy
     def get_action(self, state, sim, env):
         new_action = np.zeros([self.action_size])
-        all_moves = sim.get_all_valid_actions()
+        all_moves = sim.board.get_all_valid_actions(sim.move.a_turn)
         assert len(all_moves) <= self.action_size, len(all_moves)
         input_state = np.reshape(np.array(state), (1, env.grid_width, env.grid_height))
         q_values = self.model.predict(input_state)
