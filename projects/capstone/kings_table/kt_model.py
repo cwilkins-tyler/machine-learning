@@ -62,6 +62,9 @@ class KTModel:
         self.games_in_file = 1
         self.data_dir = os.environ.get("DATA_DIR", self._data_dir)
         self.play_data_dir = os.path.join(self.data_dir, "play_data")
+        if not os.path.isdir(self.play_data_dir):
+            os.makedirs(self.play_data_dir, exist_ok=True)
+
         self.play_data_filename_tmpl = "play_%s.json"
         self.model_dir = os.environ.get("MODEL_DIR", os.path.join(self.data_dir, "model"))
         self.next_generation_model_dir = os.path.join(self.model_dir, "next_generation")
