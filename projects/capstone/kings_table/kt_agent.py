@@ -13,14 +13,32 @@ from collections import deque
 from argparse import ArgumentParser
 from kt_simulator import Simulator
 from kt_environment import Environment
+from kt_model import KTModel
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+#logger = logging.getLogger()
 start_time = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')
-logging.basicConfig(format='%(asctime)s %(message)s', filename='kt_{}.log'.format(start_time))
+format_str = '%(asctime)s %(message)s'
+logging.basicConfig(format=format_str, filename='kt_{}.log'.format(start_time))
+#stream_handler = logging.StreamHandler()
+#stream_handler.setFormatter(format_str)
+logger = logging.getLogger() #.addHandler(stream_handler)
+logger.setLevel(logging.DEBUG)
 
 
-class LearningAgent():
+class KTZeroAgent:
+    def __init__(self):
+        self.model = None
+
+    def start(self):
+        self.model = self.load_model()
+
+    @staticmethod
+    def load_model():
+        model = KTModel()
+        return model
+
+
+class LearningAgent:
     MEMORY_SIZE = 500000  # number of observations to remember
     OBSERVATIONS = 10  # number of games to play before starting to train
     MINI_BATCH_SIZE = 5  # size of mini batches
@@ -98,7 +116,7 @@ class LearningAgent():
 
     def choose_next_action(self, state, sim):
         new_action = np.zeros([self.MAX_MOVES])
-        all_moves = sim.get_all_valid_actions()
+        all_moves = sim.board.get_all_valid_actions(sim.move.a_turn)
         assert len(all_moves) <= self.MAX_MOVES, len(all_moves)
         input_state = np.reshape(np.array(state), (self.env.grid_width, self.env.grid_height, 1))
         allQ = self._session.run([self.output_layer], feed_dict={self.input_layer: [input_state]})
@@ -137,7 +155,8 @@ class LearningAgent():
                 print('Terminal reward: {}'.format(rewards[i]))
             else:
                 reward = rewards[i] + 0.1 * np.max(agents_reward_per_action[i])
-                print('Non-terminal reward: {:.2f}, composed of {} and {}'.format(reward, rewards[i], np.max(agents_reward_per_action[i])))
+                print('Non-terminal reward: {:.2f}, composed of {} and {}'.format(reward, rewards[i],
+                                                                                  np.max(agents_reward_per_action[i])))
                 agents_expected_reward.append(reward)
 
         # learn that these actions in these states lead to this reward
@@ -308,11 +327,37 @@ def nn_run(test_mode, number_of_games, visualise_screen, results_dir):
         agent.save_observations()
 
 
+def optimize():
+    zero_model = KTModel()
+    zero_model.start()
+
+
+def self_play(num_games=5000):
+    logger.info('Starting model self play')
+    zero_model = KTModel()
+    zero_model.self_play(num_games)
+
+
+def evaluate():
+    eval_games = 5
+    # run the current best model for 50 games
+    #current_model = KTModel()
+    #best_games = current_model.self_play(eval_games)
+
+    # run the newest model for 50 games
+    new_model = KTModel(model='new')
+    new_games = new_model.self_play(eval_games)
+
+    #print(best_games)
+    print(new_games)
+
 if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument("-t", "--test", dest="test_mode",
                         action="store_true", help="Run the agent in test mode")
+
+    parser.add_argument("-m", "--mode", dest="game_mode", help="Mode in which to run")
 
     parser.add_argument("-n", "--number-of-games", dest="number_of_games",
                         help="Number of games to run", type=int)
@@ -331,6 +376,13 @@ if __name__ == '__main__':
     else:
         results_dir = args.results
 
-    nn_run(args.test_mode, args.number_of_games, args.visualise, results_dir)
+    if args.game_mode == 'opt':
+        optimize()
+    elif args.game_mode == 'self':
+        self_play(args.number_of_games)
+    elif args.game_mode == 'eval':
+        evaluate()
+    else:
+        nn_run(args.test_mode, args.number_of_games, args.visualise, results_dir)
     end_time = time.time()
-    print(end_time - start_time)
+    print('Total Run Time: {}s'.format(round(end_time - start_time)))
