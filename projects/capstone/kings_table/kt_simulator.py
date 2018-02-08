@@ -1,6 +1,8 @@
 import time
 import pygame
 import random
+from logging import getLogger
+from copy import deepcopy
 
 WINDOW_SIZE = WIDTH, HEIGHT = 640, 700
 MARGIN_COLOR = 128, 102, 69
@@ -19,6 +21,7 @@ INITIAL_STATE = [[4, 0, 0, 1, 1, 1, 1, 1, 0, 0, 4],
                  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                  [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
                  [4, 0, 0, 1, 1, 1, 1, 1, 0, 0, 4]]
+logger = getLogger(__name__)
 
 
 class Board(object):
@@ -53,6 +56,34 @@ class Board(object):
 
         self.dim = len(self.grid)
         self.agent = None
+        self.Pieces = None
+        self.Defenders = None
+        self.Attackers = None
+        self.Kings = None
+        self.Current = None
+
+    def initialize_groups(self):
+        """Create global groups for different pieces.
+
+        Notes:
+            The groups are defined as follows:
+                Pieces: all pieces
+                Attackers: all attacking pieces
+                Defenders: all defending pieces, including king
+                Kings: the king piece
+                Current: the current selected piece
+        """
+
+        self.Pieces = pygame.sprite.Group()
+        self.Attackers = pygame.sprite.Group()
+        self.Defenders = pygame.sprite.Group()
+        self.Kings = pygame.sprite.Group()
+        self.Current = pygame.sprite.Group()
+
+        Piece.groups = self.Pieces
+        Defender.groups = self.Pieces, self.Defenders
+        Attacker.groups = self.Pieces, self.Attackers
+        King.groups = self.Pieces, self.Defenders, self.Kings
 
     def initialize_pieces(self):
         """Create all of the game pieces and put them in groups.
@@ -74,14 +105,13 @@ class Board(object):
                 elif p == 3:
                     King(x, y)
 
-    @staticmethod
-    def cleanup():
+    def cleanup(self):
         """Empty out all groups of sprites"""
-        Current.empty()
-        Kings.empty()
-        Defenders.empty()
-        Attackers.empty()
-        Pieces.empty()
+        self.Current.empty()
+        self.Kings.empty()
+        self.Defenders.empty()
+        self.Attackers.empty()
+        self.Pieces.empty()
 
     def get_current_state(self):
         board_state = []
@@ -90,13 +120,13 @@ class Board(object):
             for x in range(self.dim):
                 piece_found = False
                 piece_type = 0
-                for piece in Attackers:
+                for piece in self.Attackers:
                     if piece.x_tile == x:
                         if piece.y_tile == y:
                             piece_found = True
                             piece_type = 1
 
-                for piece in Defenders:
+                for piece in self.Defenders:
                     if piece.x_tile == x:
                         if piece.y_tile == y:
                             piece_found = True
@@ -105,7 +135,7 @@ class Board(object):
                 if (x, y) in SPECIALSQS:
                     piece_type = 4
 
-                for piece in Kings:
+                for piece in self.Kings:
                     if piece.x_tile == x:
                         if piece.y_tile == y:
                             piece_found = True
@@ -120,19 +150,191 @@ class Board(object):
 
     def dump_board(self):
         current_state = self.get_current_state()
-        print('\n'.join(' '.join(map(str, sl)) for sl in current_state))
+        print('\n'.join(' '.join(map(str, sl)) for sl in current_state if sl))
 
-    @staticmethod
-    def get_all_valid_actions():
-        # make a board from the current state
+    def rotate_board(self):
+        current_state = self.get_current_state()
+        size = len(current_state)
+        new_board = deepcopy(current_state)
+        layer_count = int(size / 2)
+
+        for layer in range(layer_count):
+            first = layer
+            last = size - first - 1
+
+            for element in range(first, last):
+                offset = element - first
+
+                top = new_board[first][element]
+                right_side = new_board[element][last]
+                bottom = new_board[last][last - offset]
+                left_side = new_board[last - offset][first]
+
+                new_board[first][element] = left_side
+                new_board[element][last] = top
+                new_board[last][last - offset] = right_side
+                new_board[last - offset][first] = bottom
+
+        return new_board
+
+    def cell_has_piece(self, coords):
+        if self.cell_has_attacking_piece(coords):
+            return True
+
+        if self.cell_has_defending_piece(coords):
+            return True
+        return False
+
+    def cell_has_attacking_piece(self, coords):
+        for piece in self.Attackers:
+            if piece.x_tile == coords[0] and piece.y_tile == coords[1]:
+                return True
+
+    def cell_has_defending_piece(self, coords):
+        for piece in self.Defenders:
+            if piece.x_tile == coords[0] and piece.y_tile == coords[1]:
+                return True
+
+        return False
+
+    def get_all_valid_actions(self, attacker_turn):
+        # get all the valid actions for the given side
         all_actions = []
-        for piece in Attackers:
-            valid_moves = piece.get_valid_moves()
+
+        if attacker_turn:
+            sprite_group = self.Attackers
+        else:
+            sprite_group = self.Defenders
+
+        for piece in sprite_group:
+            valid_moves = self.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
             for valid_move in valid_moves:
                 move_representation = (piece.x_tile, piece.y_tile, valid_move[0], valid_move[1])
                 all_actions.append(move_representation)
 
         return sorted(all_actions)
+
+    def get_valid_moves(self, x, y, special_sqs):
+        valid_moves = self.valid_moves(x, y, special_sqs)
+        return valid_moves
+
+    def valid_moves(self, x, y, special_sqs):
+        """Determine the valid moves for the selected piece.
+
+        Currently there are four very similar functions to determine all valid
+        moves to the left, the right, above, and below. These functions need to
+        be refactored.
+
+        Args:
+            special_sqs (bool): True if piece can move on special squares
+
+        Returns:
+            vm (set(int,int)): Set of valid moves.
+        """
+        vm = set()
+        board_state = self.get_current_state()
+        vm.update(self.left_bound(board_state, x, y))
+        vm.update(self.right_bound(board_state, x, y))
+        vm.update(self.up_bound(board_state, x, y))
+        vm.update(self.down_bound(board_state, x, y))
+        if not special_sqs:
+            vm.difference_update(SPECIALSQS)
+        return vm
+
+    @staticmethod
+    def left_bound(board_state, x, y):
+        """Find the all valid moves to the left of the selected piece.
+
+        Iterates through all spaces to the left until the space is either
+        occupied or it has reached the edge of the board. Every valid move
+        is added to a set of valid moves, which is returned.
+
+        Returns:
+            vm (set(int, int)): Set of tuples of the tile coordinates of
+                                valid moves to the left.
+        """
+        vm = set()
+        temp_row = x - 1
+        while True:
+            if temp_row < 0:
+                return vm
+            if board_state[y][temp_row] == 0 or board_state[y][temp_row] == 4:
+                vm.add((temp_row, y))
+                temp_row -= 1
+            else:
+                return vm
+
+    @staticmethod
+    def right_bound(board_state, x, y):
+        """Find the all valid moves to the right of the selected piece.
+
+        Iterates through all spaces to the right until the space is either
+        occupied or it has reached the edge of the board. Every valid move
+        is added to a set of valid moves, which is returned.
+
+        Returns:
+            vm (set(int, int)): Set of tuples of the tile coordinates of
+                                valid moves to the right.
+        """
+        vm = set()
+        temp_row = x + 1
+        clear = True
+        while clear:
+            if temp_row > 10:
+                return vm
+            if board_state[y][temp_row] == 0 or board_state[y][temp_row] == 4:
+                vm.add((temp_row, y))
+                temp_row += 1
+            else:
+                return vm
+
+    @staticmethod
+    def up_bound(board_state, x, y):
+        """Find the all valid moves above the selected piece.
+
+        Iterates through all spaces above until the space is either
+        occupied or it has reached the edge of the board. Every valid move
+        is added to a set of valid moves, which is returned.
+
+        Returns:
+            vm (set(int, int)): Set of tuples of the tile coordinates of
+                                valid moves above.
+        """
+        vm = set()
+        temp_col = y - 1
+        clear = True
+        while clear:
+            if temp_col < 0:
+                return vm
+            if board_state[temp_col][x] == 0 or board_state[temp_col][x] == 4:
+                vm.add((x, temp_col))
+                temp_col -= 1
+            else:
+                return vm
+
+    @staticmethod
+    def down_bound(board_state, x, y):
+        """Find the all valid moves below the selected piece.
+
+        Iterates through all spaces below until the space is either
+        occupied or it has reached the edge of the board. Every valid move
+        is added to a set of valid moves, which is returned.
+
+        Returns:
+            vm (set(int, int)): Set of tuples of the tile coordinates of
+                                valid moves below.
+        """
+        vm = set()
+        temp_col = y + 1
+        clear = True
+        while clear:
+            if temp_col > 10:
+                return vm
+            if board_state[temp_col][x] == 0 or board_state[temp_col][x] == 4:
+                vm.add((x, temp_col))
+                temp_col += 1
+            else:
+                return vm
 
 
 class Move(object):
@@ -156,25 +358,54 @@ class Move(object):
         self.game_over = False
         self.restart = False
 
+    def player_move(self, event, board):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = pygame.mouse.get_pos()
+            if self.game_over:
+                pass
+            elif self.restart:
+                pass
+            elif not self.selected:
+                if self.a_turn:
+                    for piece in board.Attackers:
+                        if piece.rect.collidepoint(pos):
+                            self.select(board, piece)
+                            board.Current.add(piece)
+                else:
+                    for piece in board.Defenders:
+                        if piece.rect.collidepoint(pos):
+                            self.select(board, piece)
+                            board.Current.add(piece)
+            else:
+                if board.Current.sprites()[0].rect.collidepoint(pos):
+                    self.select(board, board.Current.sprites()[0])
+                    board.Current.empty()
+                elif self.is_valid_move(pos, board.Current.sprites()[0]):
+                    self.finalise_move(board)
+                else:
+                    print(board.get_current_state())
+
     def agent_move(self, board, agent_choice):
         # move is in the format (chosen_piece.x, chosen_piece.y, chosen_move.x, chosen_move.y)
-        chosen_piece, valid_moves = self.select_specific_piece(Attackers, (agent_choice[0], agent_choice[1]))
+        chosen_piece, valid_moves = self.select_specific_piece(board, (agent_choice[0], agent_choice[1]))
 
         if chosen_piece:
-            self.select(chosen_piece)
+            self.select(board, chosen_piece)
 
             chosen_move = (agent_choice[2], agent_choice[3])
             chosen_pos = self.ppos_cent(chosen_move[0], chosen_move[1])
-            Current.add(chosen_piece)
+            board.Current.add(chosen_piece)
 
-            if self.is_valid_move(chosen_pos, Current.sprites()[0]):
+            if self.is_valid_move(chosen_pos, board.Current.sprites()[0]):
                 self.finalise_move(board)
             else:
+                print(board.dump_board())
+                #wait = input('Enter to continue')
                 print('Final check failed')
         else:
-            print('Invalid agent piece: ({}, {})'.format(chosen_piece.x_tile, chosen_piece.y_tile))
+            print('Invalid agent piece: {}'.format(agent_choice))
             board.dump_board()
-            raise Exception('Invalid piece')
+            # raise Exception('Invalid piece')
 
     def computer_move(self, board):
         if self.game_over:
@@ -182,48 +413,47 @@ class Move(object):
         elif self.restart:
             pass
         else:
-            if self.a_turn:
-                piece, valid_moves, best_path = self.select_computer_piece(Attackers)
-                chosen_pos = self.select_computer_move(valid_moves, piece, best_path)
-                if self.is_valid_move(chosen_pos, Current.sprites()[0]):
-                    self.finalise_move(board)
-            else:
-                piece, valid_moves, best_path = self.select_computer_piece(Defenders)
-                chosen_pos = self.select_computer_move(valid_moves, piece, best_path)
+            piece, valid_moves, best_path = self.select_computer_piece(board)
+            chosen_pos = self.select_computer_move(board, valid_moves, piece, best_path)
 
-                if self.is_valid_move(chosen_pos, Current.sprites()[0]):
-                    self.finalise_move(board)
-                else:
-                    print('Not a valid move')
+            if self.is_valid_move(chosen_pos, board.Current.sprites()[0]):
+                self.finalise_move(board)
+            else:
+                print('Not a valid move')
 
     @staticmethod
-    def select_specific_piece(sprite_group, target_coords):
+    def select_specific_piece(board, target_coords):
         piece = None
         valid_moves = []
-        for sprite in sprite_group.sprites():
+        for sprite in board.Attackers.sprites():
             if sprite.x_tile == target_coords[0] and sprite.y_tile == target_coords[1]:
                 piece = sprite
-                valid_moves = piece.get_valid_moves()
+                valid_moves = board.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
                 break
+
+        if not piece:
+            print('No piece found at coords: {}'.format(target_coords))
+            print(board.dump_board())
+            #wait = input('Enter to continue')
         return piece, valid_moves
 
-    def select_computer_piece(self, sprite_group):
+    def select_computer_piece(self, board):
         best_path = []
         if self.a_turn:
             # random moves for the attackers for now
-            piece, valid_moves = self.select_random_piece(sprite_group)
+            piece, valid_moves = self.select_random_piece(board)
         else:
             # check if we need to free the king
-            if self.king_trapped():
+            if self.king_trapped(board):
                 # move pieces out of the way so the king can move, this will usually only happen in the first few moves
-                piece, valid_moves = self.move_trapping_pieces()
+                piece, valid_moves = self.move_trapping_pieces(board)
             else:
-                # find a path from the king to a special piece
-                king = Kings.sprites()[0]
+                # find a path from the king to a special square
+                king = board.Kings.sprites()[0]
                 king_cell = Cell((king.x_tile, king.y_tile))
                 all_paths = []
                 for end_square in WINNERSQS:
-                    path = self.find_path(king_cell, end_square)
+                    path = self.find_path(board, king_cell, end_square)
 
                     if len(path) > 0:
                         all_paths.append(path)
@@ -231,29 +461,33 @@ class Move(object):
                 if len(all_paths) > 0:
                     # move the king
                     piece = king
-                    valid_moves = piece.get_valid_moves()
+                    valid_moves = board.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
                     best_path = sorted(all_paths, key=lambda x: len(x))[0]
                 else:
                     # try to take a piece from the other side
-                    piece, valid_moves = self.find_captures(sprite_group)
+                    piece, valid_moves = self.find_captures(board)
                     if not piece:
-                        piece, valid_moves = self.select_random_piece(sprite_group)
+                        piece, valid_moves = self.select_random_piece(board)
 
-        self.select(piece)
+        self.select(board, piece)
         return piece, valid_moves, best_path
 
-    @staticmethod
-    def select_random_piece(sprite_group):
+    def select_random_piece(self, board):
         piece = None
         valid_moves = []
         valid_move_count = 0
+        if self.a_turn:
+            sprite_group = board.Attackers
+        else:
+            sprite_group = board.Defenders
+
         while not valid_move_count:
             piece = random.choice(sprite_group.sprites())
-            valid_moves = piece.get_valid_moves()
+            valid_moves = board.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
             valid_move_count = len(valid_moves)
         return piece, valid_moves
 
-    def select_computer_move(self, valid_moves, piece, best_path):
+    def select_computer_move(self, board, valid_moves, piece, best_path):
         if len(valid_moves.intersection(WINNERSQS)) > 0:
             # we can move onto the special squares, so do that
             chosen_move = random.choice(tuple(valid_moves.intersection(WINNERSQS)))
@@ -264,22 +498,24 @@ class Move(object):
                         chosen_move = path.coords
             else:
                 chosen_move = random.choice(tuple(valid_moves))
+
+        logger.debug('Computer chooses: {}, {}, {}'.format(piece.x_tile, piece.y_tile, chosen_move))
         chosen_pos = self.ppos_cent(chosen_move[0], chosen_move[1])
-        Current.add(piece)
+        board.Current.add(piece)
         return chosen_pos
 
     @staticmethod
-    def piece_trapped(piece):
-        valid_moves = piece.get_valid_moves()
+    def piece_trapped(board, piece):
+        valid_moves = board.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
         valid_move_count = len(valid_moves)
         if valid_move_count == 0:
             return True
         else:
             return False
 
-    def king_trapped(self):
-        king_piece = Kings.sprites()[0]
-        return self.piece_trapped(king_piece)
+    def king_trapped(self, board):
+        king_piece = board.Kings.sprites()[0]
+        return self.piece_trapped(board, king_piece)
 
     @staticmethod
     def heuristic(a, b):
@@ -287,10 +523,10 @@ class Move(object):
         return abs(a.x - b.x) + abs(a.y - b.y)
 
     @staticmethod
-    def next_step(open_list):
+    def next_step(board, open_list):
         open_list.sort(key=lambda x: x.f, reverse=True)
         cell = open_list.pop()
-        cell.get_neighbours()
+        cell.get_neighbours(board)
         return cell
 
     @staticmethod
@@ -302,7 +538,7 @@ class Move(object):
 
         return already_seen
 
-    def find_path(self, start, goal):
+    def find_path(self, board, start, goal):
         target = Cell(goal)
 
         open_list = []
@@ -310,7 +546,7 @@ class Move(object):
         open_list.append(start)
         iteration = 0
         while len(open_list) > 0:
-            current = self.next_step(open_list)
+            current = self.next_step(board, open_list)
             if current.coords == target.coords:
                 cell = current
                 path = []
@@ -342,7 +578,7 @@ class Move(object):
             return []
 
     @staticmethod
-    def can_complete_capture(target_move, target_capture):
+    def can_complete_capture(board, target_move, target_capture):
         target_cell = ''
         # Up
         if target_move.y + 1 == target_capture.y:
@@ -361,23 +597,23 @@ class Move(object):
             target_cell = Cell((target_move.x - 2, target_move.y))
 
         if target_cell:
-            if target_cell.cell_has_defending_piece((target_cell.x, target_cell.y)):
+            if board.cell_has_defending_piece((target_cell.x, target_cell.y)):
                 return True
             elif target_cell.cell_is_special((target_cell.x, target_cell.y)):
                 return True
 
-    def find_captures(self, sprite_group):
+    def find_captures(self, board):
         capturing_pieces = dict()
-        for piece in sprite_group:
-            valid_moves = piece.get_valid_moves()
+        for piece in board.Defenders:
+            valid_moves = board.get_valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
             for valid_move in valid_moves:
                 target_cell = Cell(valid_move)
-                target_pieces = target_cell.get_neighbouring_pieces()
+                target_pieces = target_cell.get_neighbouring_pieces(board)
                 if len(target_pieces) > 0:
                     for target_piece in target_pieces:
                         # check if the piece is from the opposition
-                        if target_piece.cell_has_attacking_piece((target_piece.x, target_piece.y)):
-                            if self.can_complete_capture(target_cell, target_piece):
+                        if board.cell_has_attacking_piece((target_piece.x, target_piece.y)):
+                            if self.can_complete_capture(board, target_cell, target_piece):
                                 capturing_pieces.setdefault(piece, [])
                                 capturing_pieces[piece].append(valid_move)
 
@@ -391,52 +627,55 @@ class Move(object):
         return chosen_piece, chosen_moves
 
     def finalise_move(self, board):
-        if Current.sprites()[0] in Kings:
-            self.king_escaped(Kings)
+        if board.Current.sprites()[0] in board.Kings:
+            self.king_escaped(board.Kings)
         if self.a_turn:
-            self.remove_pieces(Defenders, Attackers, Kings)
+            self.remove_pieces(board.Defenders, board.Attackers, board.Kings)
         else:
-            self.remove_pieces(Attackers, Defenders, Kings)
+            self.remove_pieces(board.Attackers, board.Defenders, board.Kings)
 
-        self.end_turn(Current.sprites()[0])
-        Current.empty()
+        self.end_turn(board.Current.sprites()[0])
+        board.Current.empty()
         # dump_board(board)
 
-    def find_valid_neighbours(self, piece):
+    def find_valid_neighbours(self, board, piece):
         valid_neighbours = []
-        neighbours = piece.find_neighbours()
+        neighbours = piece.find_neighbours(board)
         for np in neighbours:
-            if not self.piece_trapped(np):
-                if piece in Defenders:
+            if not self.piece_trapped(board, np):
+                if piece in board.Defenders:
                     valid_neighbours.append(np)
         return valid_neighbours
 
-    def move_trapping_pieces(self):
-        for king_piece in Kings:
-            neighbours = king_piece.find_neighbours()
+    def move_trapping_pieces(self, board):
+        for king_piece in board.Kings:
+            neighbours = king_piece.find_neighbours(board)
 
             # check if all the neighbours are trapped too
             valid_neighbours = []
             for np in neighbours:
-                if not self.piece_trapped(np):
-                    if np in Defenders:
+                if not self.piece_trapped(board, np):
+                    if np in board.Defenders:
                         valid_neighbours.append(np)
 
             if len(valid_neighbours) == 0:
                 for neighbour_piece in neighbours:
-                    valid_next_neighbours = self.find_valid_neighbours(neighbour_piece)
+                    valid_next_neighbours = self.find_valid_neighbours(board, neighbour_piece)
                     if len(valid_next_neighbours) > 0:
                         next_neighbour_piece = random.choice(valid_next_neighbours)
-                        valid_moves = next_neighbour_piece.get_valid_moves()
+                        valid_moves = board.get_valid_moves(next_neighbour_piece.x_tile,
+                                                            next_neighbour_piece.y_tile,
+                                                            next_neighbour_piece.special_sqs)
                         piece = next_neighbour_piece
                         return piece, valid_moves
             else:
                 neighbour_piece = random.choice(valid_neighbours)
-                valid_moves = neighbour_piece.get_valid_moves()
+                valid_moves = board.get_valid_moves(neighbour_piece.x_tile, neighbour_piece.y_tile,
+                                                    neighbour_piece.special_sqs)
                 piece = neighbour_piece
                 return piece, valid_moves
 
-    def select(self, piece):
+    def select(self, board, piece):
         """Allow players to select one of their pieces to move.
 
         When a player clicks on a piece, this function first checks if they
@@ -454,32 +693,10 @@ class Move(object):
             piece.color = (71, 166, 169)
             self.row = piece.x_tile
             self.col = piece.y_tile
-            self.vm = self.valid_moves(piece.special_sqs)
+            self.vm = board.valid_moves(piece.x_tile, piece.y_tile, piece.special_sqs)
         else:
             self.selected = False
             piece.color = piece.base_color
-
-    def valid_moves(self, special_sqs):
-        """Determine the valid moves for the selected piece.
-
-        Currently there are four very similar functions to determine all valid
-        moves to the left, the right, above, and below. These functions need to
-        be refactored.
-
-        Args:
-            special_sqs (bool): True if piece can move on special squares
-
-        Returns:
-            vm (set(int,int)): Set of valid moves.
-        """
-        vm = set()
-        vm.update(self.left_bound())
-        vm.update(self.right_bound())
-        vm.update(self.up_bound())
-        vm.update(self.down_bound())
-        if not special_sqs:
-            vm.difference_update(SPECIALSQS)
-        return vm
 
     def is_valid_move(self, pos, piece):
         """Determine if the selected move is valid or not.
@@ -503,7 +720,8 @@ class Move(object):
             self.col = col
             return True
         else:
-            print('Invalid move')
+            print('Invalid move, valid moves for piece at {}, {} are:'.format(piece.x_tile, piece.y_tile))
+            print(sorted(self.vm))
             return False
 
     def king_escaped(self, Kings):
@@ -583,101 +801,6 @@ class Move(object):
         if not kill_pts:
             return True
 
-    def left_bound(self):
-        """Find the all valid moves to the left of the selected piece.
-
-        Iterates through all spaces to the left until the space is either
-        occupied or it has reached the edge of the board. Every valid move
-        is added to a set of valid moves, which is returned.
-
-        Returns:
-            vm (set(int, int)): Set of tuples of the tile coordinates of
-                                valid moves to the left.
-        """
-        vm = set()
-        temp_row = self.row - 1
-        while True:
-            if temp_row < 0:
-                return vm
-            for p in Pieces:
-                ppos = self.ppos_cent(temp_row, self.col)
-                if p.rect.collidepoint(ppos):
-                    return vm
-            vm.add((temp_row, self.col))
-            temp_row -= 1
-
-    def right_bound(self):
-        """Find the all valid moves to the right of the selected piece.
-
-        Iterates through all spaces to the right until the space is either
-        occupied or it has reached the edge of the board. Every valid move
-        is added to a set of valid moves, which is returned.
-
-        Returns:
-            vm (set(int, int)): Set of tuples of the tile coordinates of
-                                valid moves to the right.
-        """
-        vm = set()
-        temp_row = self.row + 1
-        clear = True
-        while clear:
-            if temp_row > 10:
-                return vm
-            for p in Pieces:
-                ppos = self.ppos_cent(temp_row, self.col)
-                if p.rect.collidepoint(ppos):
-                    return vm
-            vm.add((temp_row, self.col))
-            temp_row += 1
-
-    def up_bound(self):
-        """Find the all valid moves above the selected piece.
-
-        Iterates through all spaces above until the space is either
-        occupied or it has reached the edge of the board. Every valid move
-        is added to a set of valid moves, which is returned.
-
-        Returns:
-            vm (set(int, int)): Set of tuples of the tile coordinates of
-                                valid moves above.
-        """
-        vm = set()
-        temp_col = self.col - 1
-        clear = True
-        while clear:
-            if temp_col < 0:
-                return vm
-            for p in Pieces:
-                ppos = self.ppos_cent(self.row, temp_col)
-                if p.rect.collidepoint(ppos):
-                    return vm
-            vm.add((self.row, temp_col))
-            temp_col -= 1
-
-    def down_bound(self):
-        """Find the all valid moves below the selected piece.
-
-        Iterates through all spaces below until the space is either
-        occupied or it has reached the edge of the board. Every valid move
-        is added to a set of valid moves, which is returned.
-
-        Returns:
-            vm (set(int, int)): Set of tuples of the tile coordinates of
-                                valid moves below.
-        """
-        vm = set()
-        temp_col = self.col + 1
-        clear = True
-        while clear:
-            if temp_col > 10:
-                return vm
-            for p in Pieces:
-                ppos = self.ppos_cent(self.row, temp_col)
-                if p.rect.collidepoint(ppos):
-                    return vm
-            vm.add((self.row, temp_col))
-            temp_col += 1
-
     @staticmethod
     def ppos(x):
         """Find the top or left pixel position of a given tile.
@@ -714,35 +837,6 @@ class Move(object):
         piece.color = piece.base_color
 
 
-def initialize_groups():
-    """Create global groups for different pieces.
-
-    Notes:
-        The groups are defined as follows:
-            Pieces: all pieces
-            Attackers: all attacking pieces
-            Defenders: all defending pieces, including king
-            Kings: the king piece
-            Current: the current selected piece
-    """
-    global Pieces
-    global Attackers
-    global Defenders
-    global Kings
-    global Current
-
-    Pieces = pygame.sprite.Group()
-    Attackers = pygame.sprite.Group()
-    Defenders = pygame.sprite.Group()
-    Kings = pygame.sprite.Group()
-    Current = pygame.sprite.Group()
-
-    Piece.groups = Pieces
-    Defender.groups = Pieces, Defenders
-    Attacker.groups = Pieces, Attackers
-    King.groups = Pieces, Defenders, Kings
-
-
 class Piece(pygame.sprite.Sprite):
 
     """Class for all playing pieces.
@@ -764,13 +858,6 @@ class Piece(pygame.sprite.Sprite):
         pygame.sprite.Sprite.__init__(self, self.groups)
         self.special_sqs = False
         self.pos_cent(x, y)
-
-    def get_valid_moves(self):
-        temp_move = Move()
-        temp_move.select(self)
-        valid_moves = temp_move.valid_moves(self.special_sqs)
-        temp_move.select(self)
-        return valid_moves
 
     @staticmethod
     def pos(x):
@@ -805,14 +892,15 @@ class Piece(pygame.sprite.Sprite):
                                  self.y_px - GSIZE/2,
                                  GSIZE,
                                  GSIZE])
+        return self.x_px, self.y_px
 
     def draw(self, screen):
         """Draw the piece on the board in the correct location."""
         pygame.draw.circle(screen, self.color, [self.x_px, self.y_px], int(GSIZE/2))
 
-    def find_neighbours(self):
+    def find_neighbours(self, board):
         neighbours = []
-        for neighbour_piece in Pieces:
+        for neighbour_piece in board.Pieces:
             if neighbour_piece.x_tile == self.x_tile + 1 and neighbour_piece.y_tile == self.y_tile:
                 neighbours.append(neighbour_piece)
             elif neighbour_piece.x_tile == self.x_tile - 1 and neighbour_piece.y_tile == self.y_tile:
@@ -864,7 +952,7 @@ class King(Defender):
         self.special_sqs = True
 
 
-class Cell():
+class Cell:
     def __init__(self, coords):
         self.x, self.y = coords
         self.coords = coords
@@ -875,28 +963,6 @@ class Cell():
         self.g = 0
         self.distance_from_target = 0
 
-    def cell_has_piece(self, coords):
-        if self.cell_has_attacking_piece(coords):
-            return True
-
-        if self.cell_has_defending_piece(coords):
-            return True
-        return False
-
-    @staticmethod
-    def cell_has_attacking_piece(coords):
-        for piece in Attackers:
-            if piece.x_tile == coords[0] and piece.y_tile == coords[1]:
-                return True
-
-    @staticmethod
-    def cell_has_defending_piece(coords):
-        for piece in Defenders:
-            if piece.x_tile == coords[0] and piece.y_tile == coords[1]:
-                return True
-
-        return False
-
     @staticmethod
     def cell_is_special(coords):
         if coords in SPECIALSQS:
@@ -904,51 +970,51 @@ class Cell():
 
         return False
 
-    def get_neighbours(self):
+    def get_neighbours(self, board):
         self.neighbours = []
         # Up
-        if self.y < 10 and (not self.cell_has_piece((self.x, self.y + 1))):
+        if self.y < 10 and (not board.cell_has_piece((self.x, self.y + 1))):
             self.neighbours.append(Cell((self.x, self.y + 1)))
         # Right
-        if self.x < 10 and (not self.cell_has_piece((self.x + 1, self.y))):
+        if self.x < 10 and (not board.cell_has_piece((self.x + 1, self.y))):
             self.neighbours.append(Cell((self.x + 1, self.y)))
         # Down
-        if self.y > 0 and (not self.cell_has_piece((self.x, self.y - 1))):
+        if self.y > 0 and (not board.cell_has_piece((self.x, self.y - 1))):
             self.neighbours.append(Cell((self.x, self.y - 1)))
         # Left
-        if self.x > 0 and (not self.cell_has_piece((self.x - 1, self.y))):
+        if self.x > 0 and (not board.cell_has_piece((self.x - 1, self.y))):
             self.neighbours.append(Cell((self.x - 1, self.y)))
 
-    def get_neighbouring_pieces(self):
+    def get_neighbouring_pieces(self, board):
         neighbour_pieces = []
         # Up
-        if self.y < 10 and self.cell_has_piece((self.x, self.y + 1)):
+        if self.y < 10 and board.cell_has_piece((self.x, self.y + 1)):
             neighbour_pieces.append(Cell((self.x, self.y + 1)))
         # Right
-        if self.x < 10 and self.cell_has_piece((self.x + 1, self.y)):
+        if self.x < 10 and board.cell_has_piece((self.x + 1, self.y)):
             neighbour_pieces.append(Cell((self.x + 1, self.y)))
         # Down
-        if self.y > 0 and self.cell_has_piece((self.x, self.y - 1)):
+        if self.y > 0 and board.cell_has_piece((self.x, self.y - 1)):
             neighbour_pieces.append(Cell((self.x, self.y - 1)))
         # Left
-        if self.x > 0 and self.cell_has_piece((self.x - 1, self.y)):
+        if self.x > 0 and board.cell_has_piece((self.x - 1, self.y)):
             neighbour_pieces.append(Cell((self.x - 1, self.y)))
 
         return neighbour_pieces
 
 
-class Simulator():
-    def __init__(self, sim_mode=True, visualise=False):
+class Simulator:
+    def __init__(self, sim_mode=True, visualise=False, state=INITIAL_STATE):
         self.sim_mode = sim_mode
         self.visualise = visualise
-        pygame.init()
-        pygame.display.set_caption("King's Table")
         if visualise:
+            pygame.init()
+            pygame.display.set_caption("King's Table")
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
 
-        initialize_groups()
-        self.board = Board(INITIAL_STATE)
+        self.board = Board(state)
         self.move = Move()
+        self.board.initialize_groups()
         self.board.initialize_pieces()
         self.round_number = 0
 
@@ -974,7 +1040,7 @@ class Simulator():
                         GSIZE]
                 pygame.draw.rect(screen, board.colors[board.grid[x][y]], xywh)
 
-        for piece in Pieces:
+        for piece in board.Pieces:
             piece.draw(screen)
 
         if not sim_mode:
@@ -1001,15 +1067,16 @@ class Simulator():
 
     def step(self, action):
         self.round_number += 1
+        logger.debug('Agent move: {}'.format(action))
         self.move.agent_move(self.board, action)
-
+        #self.board.dump_board()
         if self.visualise:
             self.update_image(self.screen, self.board, self.move, '', '', self.sim_mode)
             # slow down the updates if the screen is being shown
             time.sleep(1)
 
         self.move.computer_move(self.board)
-
+        #self.board.dump_board()
         current_state = self.board.get_current_state()
         reward = float(self.round_number) / 200
         if self.move.game_over:
@@ -1017,7 +1084,7 @@ class Simulator():
                 print("winner=Attacker")
                 reward = 1
             else:
-                print("winner=Defender")
+                logger.debug("winner=Defender")
                 reward = -1
 
         return self.move, current_state, reward
@@ -1025,11 +1092,16 @@ class Simulator():
     def get_state(self):
         return self.board.get_current_state()
 
-    def get_all_valid_actions(self):
-        all_moves = self.board.get_all_valid_actions()
-        return all_moves
-
     def game_over(self):
         self.board.cleanup()
-        pygame.display.quit()
-        pygame.quit()
+
+        if self.visualise:
+            pygame.display.quit()
+            pygame.quit()
+
+        if self.move.king_killed:
+            attacker_win = 1
+        else:
+            attacker_win = -1
+
+        return attacker_win
